@@ -1,0 +1,55 @@
+# dsh-train-pipeline bundle patch
+#
+# 本文件随插件包一起分发；`dsh plugin add` 之后，dsh 启动时会自动加载它。
+# 叠加顺序：dsh-base → dsh-web-app → 本 bundle patch → profile 的 cordis.patch.yml → --patch
+#
+# ★ 路径默认全留空：安装后由 src/config.js **自动发现**
+#   - songRoot 使用 DSH_COVER_ROOT 或 cwd；trainRoot 单独使用 DSH_TRAIN_ROOT
+#   - 在根目录里找 02_*（DDSP 工程）、03_*（音色库）、04_*（训练工作区）
+#   - Python 默认用 <ddspDir>/env/python.exe
+#   只补空配置，保留显式配置的不存在路径供 doctor 诊断。
+#   发现不到时，运行 `train_setup` 会给出配置片段。
+#
+# 环境变量（可选）：
+#   DSH_TRAIN_ROOT   - 训练工作区根目录，默认 <songRoot>/04_训练工作区
+#   DSH_COVER_ROOT   - AI-Song 根目录（与 cover 插件共用同一个）
+#
+# 注意：patch 会**整行替换**目标行的 config，故此处列出本插件所需的全部键。
+- insert:
+    - id: train-pipeline
+      name: 'dsh-train-pipeline'
+      config:
+        # ── 目录（留空 = 自动发现）────────────────────────────────────
+        songRoot: !!js process.env.DSH_COVER_ROOT ?? ''
+        trainRoot: !!js process.env.DSH_TRAIN_ROOT ?? ''
+        voiceLibDir: ''
+
+        # ── DDSP 工程与 Python（外部硬依赖；留空 = 在 02_*/ 里找 train_reflow.py）
+        ddspDir: ''
+        ddspEnv: ''
+
+        # ── 其它外部件（留空 = 自动发现）──────────────────────────────
+        ffmpeg: ''
+
+        # ── 解包工具链（留空 = <songRoot>/tools）──────────────────────
+        # arc_unpacker / FreeMote 可由 train_toolchain 从官方 release 自动装
+        toolsDir: ''
+
+        # ── 网络（留空 = 直连；再回退到 HTTPS_PROXY / HTTP_PROXY 环境变量）──
+        # ★ 不要把某台机器的代理地址写在这里：本文件随插件分发
+        proxy: ''
+
+        # ── 训练配置（相对 ddspDir）───────────────────────────────────
+        configName: 'reflow-barbara.yaml'
+        expName: 'reflow-test'
+
+        # ── 数据集默认值 ──────────────────────────────────────────────
+        minSec: 3.0
+        maxSec: 15.0
+        targetHours: 0.5
+        sampleRate: 44100
+        speakerFilter: ''
+
+        # ── 运行控制 ──────────────────────────────────────────────────
+        timeoutMs: 3600000
+        maxOutputChars: 6000

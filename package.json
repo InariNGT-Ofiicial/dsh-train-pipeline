@@ -1,0 +1,68 @@
+{
+  "name": "dsh-train-pipeline",
+  "version": "0.4.1",
+  "private": true,
+  "description": "DSH local voice-dataset + DDSP training pipeline: agent-driven material acquisition (find/fetch/unpack), galgame-first, other sources pluggable",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "plugin",
+    "ddsp",
+    "voice-dataset",
+    "galgame",
+    "kirikiri"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "test": "node test/all.mjs",
+    "test:smoke": "node test/smoke.mjs",
+    "test:duration": "node test/duration.mjs",
+    "test:package": "node test/package.mjs",
+    "test:parser": "node test/parser.mjs",
+    "test:ks": "node test/ks.mjs",
+    "test:acquire": "node test/acquire.mjs",
+    "test:toolchain": "node test/toolchain.mjs",
+    "test:register": "node test/register.mjs",
+    "test:e2e": "node test/e2e.mjs",
+    "test:live": "node test/live.mjs",
+    "test:all": "node test/all.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  },
+  "files": [
+    "src/*.js",
+    "src/sources/*.js",
+    "py/*.py",
+    "scripts/*.ps1",
+    "scripts/*.mjs",
+    "cordis.patch.yml",
+    "cordis.dev.yml",
+    "docs/*.md",
+    "materials/*.md",
+    "requirements*.txt",
+    "test/*.mjs",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSE"
+  ]
+}
