@@ -4,7 +4,9 @@ DeepSeek Harness（DSH）的本地音色训练插件，版本 **0.4.1**。19 个
 
 与 [dsh-cover-pipeline](https://github.com/InariNGT-Ofiicial/dsh-cover-pipeline) 配套：训练插件把 `model_N.pt` 和 `config.yaml` 放入约定的音色库，翻唱插件重载后发现并使用该音色。
 
-仓库仅分发源码、合成测试生成器和文档。DDSP 工程、模型权重、游戏素材、语音、歌曲和参考音频均需另备，不随仓库上传。
+Git 源码树仅包含源码、合成测试生成器和文档，不包含 DDSP 工程、模型权重、游戏素材、语音、歌曲或参考音频。
+
+**芳乃模型下载**：[20000 步权重与配套配置](https://github.com/InariNGT-Ofiicial/dsh-train-pipeline/releases/tag/voice-yoshino-20000) 按用户要求单独提供为公开 Release 附件，使用方法与 SHA-256 见 [模型说明](docs/YOSHINO_MODEL.md)。它不随 `git clone` 或 npm 包下载，插件代码的 MIT 许可不自动适用于权重。
 
 ## 安装
 

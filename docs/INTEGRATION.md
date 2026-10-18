@@ -2,6 +2,8 @@
 
 两插件共享 `songRoot` 与 `voiceLibDir`。注册工具复制选定实验中的 `model_<N>.pt` 与 **同目录 `config.yaml`**，写入溯源文件；不会重新训练或修改翻唱插件。
 
+直接使用已发布的芳乃 20000 步模型，下载与放置方法见 [芳乃模型说明](YOSHINO_MODEL.md)。该 Release 已提供匹配配置，无需先运行训练。
+
 ```text
 03_voices/
   ExampleVoice_步数20000/

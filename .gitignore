@@ -3,7 +3,7 @@ _tmp/
 train.local.json
 *.log
 
-# 绝不提交：素材、数据集、权重、训练产物
+# Git 源码树忽略素材、数据集、权重和训练产物；授权模型单独作为 Release 附件分发
 *.wav
 *.ogg
 *.flac
