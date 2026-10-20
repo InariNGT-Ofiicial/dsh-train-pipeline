@@ -19,14 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This license covers the plugin source code only. It does NOT cover:
-
-  - DDSP-SVC or any bundled third-party project (see their own licenses)
-  - game assets, character voices, or CV performances used as training data
-  - model weights produced by training
-
-You are responsible for confirming that you have the right to use any audio
-you feed into this pipeline, and for how any generated voice is used.
