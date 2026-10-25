@@ -53,22 +53,82 @@ def resample(y: np.ndarray, sr: int, target: int) -> np.ndarray:
     return np.interp(x_new, x_old, y).astype(np.float32)
 
 
-def trim_silence(y: np.ndarray, sr: int, thresh_db: float = -40.0, pad_sec: float = 0.05) -> np.ndarray:
-    if y.size == 0:
-        return y
-    frame = max(1, int(sr * 0.02))
+def frame_db(y: np.ndarray, sr: int, hop_sec: float = 0.02):
+    """帧级 RMS(dB)。返回 (db, 帧长采样数)；帧数不足时返回 (None, 帧长)。"""
+    frame = max(1, int(sr * hop_sec))
     n = len(y) // frame
     if n < 3:
-        return y
+        return None, frame
     rms = np.sqrt(np.mean(y[: n * frame].reshape(n, frame) ** 2, axis=1) + 1e-12)
-    db = 20 * np.log10(rms + 1e-12)
+    return 20 * np.log10(rms + 1e-12), frame
+
+
+def trim_silence(y: np.ndarray, sr: int, thresh_db: float = -40.0,
+                 head_pad_sec: float = 0.05, tail_pad_sec: float = 0.16,
+                 trim_tail: bool = False) -> np.ndarray:
+    """
+    裁静音。默认**只裁头**：句尾的自然衰减原样保留，末尾兜一段静音底。
+
+    ★ 为什么尾不能裁（2026-10-24 在 GPT-SoVITS 线实测，DDSP 同理）：
+      旧的「双向裁」把句尾一直裁到「最后有声帧 + 50ms」，也就是让每条数据都停在
+      接近满电平的位置。拿这种数据训出来的模型会学成「句子在满电平处直接断」，
+      推理时表现为吞末字、尾音没有衰减。旧 GPT-SoVITS 集 383 条实测：
+      尾部静音 0ms、收尾电平 -9.5dB、64% 的样本 > -12dB（即停在满电平），
+      对应模型末三字完整念出率只有 33%；改成留尾重建后 93%、收尾 -25.8dB。
+      真人自然收尾约 -24dB，所以判据是「收尾电平 > -12dB = 句尾被切断」。
+
+    尾部规则（三步，都只依赖帧级检测）：
+      1. 最后一个有声帧之前的信号（含自然衰减）**完整保留**；
+      2. 之后的源静音只留到 tail_pad_sec，多余的截掉（避免源自带长静音拖长片段）；
+      3. 源静音不足 tail_pad_sec 时用零填充补足。
+    trim_tail=True 复现旧行为（尾部只留 50ms），仅用于对齐历史数据集，不要用在生产数据上。
+    """
+    if y.size == 0:
+        return y
+    db, frame = frame_db(y, sr)
+    if db is None:
+        return y
     voiced = np.where(db > thresh_db)[0]
     if voiced.size == 0:
         return y
-    pad = int(pad_sec * sr)
-    a = max(0, voiced[0] * frame - pad)
-    b = min(len(y), (voiced[-1] + 1) * frame + pad)
-    return y[a:b]
+    head = int(head_pad_sec * sr)
+    a = max(0, voiced[0] * frame - head)
+    last_end = min(len(y), (voiced[-1] + 1) * frame)
+    if trim_tail:
+        # 旧行为：最后有声帧 + 50ms，双向裁
+        return y[a: min(len(y), last_end + int(0.05 * sr))]
+    want = last_end + int(tail_pad_sec * sr)
+    b = min(len(y), want)
+    seg = y[a:b]
+    if len(seg) < want - a:
+        seg = np.concatenate([seg, np.zeros(want - a - len(seg), dtype=y.dtype)])
+    return seg
+
+
+def end_metrics(y: np.ndarray, sr: int, win_sec: float = 0.04, rel: float = 0.01):
+    """
+    句尾体检：返回 (tail_ms, end_db)；音频全静音时返回 (None, None)。
+
+    tail_ms —— 最后一个有声采样到文件末的毫秒数。太小（<10ms）= 尾巴被剃光。
+    end_db  —— 最后一个有声采样**之前** 40ms 的 RMS，相对句内 90 分位（dB）。
+               真人自然收尾约 -24dB；> -12dB 说明句子停在满电平，就是切尾。
+    """
+    if y.size == 0:
+        return None, None
+    a = np.abs(y)
+    peak = float(a.max())
+    if peak <= 0:
+        return None, None
+    idx = np.where(a > peak * rel)[0]
+    if idx.size == 0:
+        return None, None
+    last = int(idx[-1])
+    tail_ms = round((len(y) - 1 - last) / float(sr) * 1000.0, 1)
+    k = max(1, int(win_sec * sr))
+    seg = a[max(0, last - k + 1): last + 1]
+    rms = float(np.sqrt(np.mean(seg ** 2))) + 1e-9
+    ref = float(np.percentile(a, 90)) + 1e-9
+    return tail_ms, round(20 * np.log10(rms / ref), 1)
 
 
 def dc_remove(y: np.ndarray) -> np.ndarray:
@@ -153,30 +213,37 @@ def audio_files_under(d: str):
 
 # ── 主流程 ────────────────────────────────────────────────────────────────
 
-def convert_one(src: str, dst: str, target_sr: int, min_sec: float, max_sec: float):
-    """返回 (段数, 总秒数)；失败抛异常。"""
+def convert_one(src: str, dst: str, target_sr: int, min_sec: float, max_sec: float,
+                tail_pad: float = 0.16, trim_tail: bool = False, head_pad: float = 0.05):
+    """返回 (段数, 总秒数, 尾音指标列表)；失败抛异常。
+
+    尾音指标 = [(文件名, tail_ms, end_db), ...]，供 main 汇总成 tail_stats。
+    """
     y, sr = sf.read(src, always_2d=True, dtype="float32")
     y = y.mean(axis=1)
     y = dc_remove(y)
     y = resample(y, sr, target_sr)
-    y = trim_silence(y, target_sr)
+    y = trim_silence(y, target_sr, head_pad_sec=head_pad, tail_pad_sec=tail_pad, trim_tail=trim_tail)
     if y.size == 0:
         raise ValueError("空音频")
     segs = []
     for seg in split_by_energy(y, target_sr, max_sec, min_sec):
-        seg = trim_silence(seg, target_sr)
+        seg = trim_silence(seg, target_sr, head_pad_sec=head_pad, tail_pad_sec=tail_pad, trim_tail=trim_tail)
         if len(seg) / target_sr >= min_sec:
             segs.append(seg)
     if not segs:
         raise ValueError("裁剪后短于下限")
     base = os.path.splitext(dst)[0]
+    tails = []
     for i, seg in enumerate(segs):
         out = f"{base}.wav" if len(segs) == 1 else f"{base}_{i:02d}.wav"
         peak = float(np.max(np.abs(seg))) or 1.0
         if peak > 0.999:                      # 只压掉真的爆掉的，不做整体归一化
             seg = seg / peak * 0.99
         sf.write(out, seg, target_sr, subtype="PCM_16")
-    return len(segs), sum(len(s) for s in segs) / target_sr
+        tail_ms, end_db = end_metrics(seg, target_sr)
+        tails.append((os.path.basename(out), tail_ms, end_db))
+    return len(segs), sum(len(s) for s in segs) / target_sr, tails
 
 
 def main(argv=None) -> int:
@@ -193,6 +260,12 @@ def main(argv=None) -> int:
     ap.add_argument("--max-sec", type=float, default=15.0)
     ap.add_argument("--sample-rate", type=int, default=44100)
     ap.add_argument("--limit", type=int, default=0, help="每个角色最多处理多少条（0=不限）")
+    ap.add_argument("--head-pad", type=float, default=0.05, help="句首保留的静音秒数，默认 0.05")
+    ap.add_argument("--tail-pad", type=float, default=0.16,
+                    help="句尾兜底静音秒数。训练集必须留尾，默认 0.16s；设 0 关闭")
+    ap.add_argument("--trim-tail", action="store_true",
+                    help="★仅复现旧数据集用：双向裁尾。实测会把句尾衰减削到满电平，"
+                         "训出来的模型会吞末字，不要在生产数据集上打开")
     ap.add_argument("--report", default="")
     args = ap.parse_args(argv)
 
@@ -202,7 +275,10 @@ def main(argv=None) -> int:
 
     os.makedirs(args.out_dir, exist_ok=True)
     idx = build_index(args.voice_dir)
-    stats = {"ok": True, "voice_files_indexed": len(idx), "speakers": [], "built": 0, "seconds": 0.0}
+    stats = {"ok": True, "voice_files_indexed": len(idx), "speakers": [], "built": 0, "seconds": 0.0,
+             "tail_pad": args.tail_pad, "head_pad": args.head_pad, "trim_tail": bool(args.trim_tail)}
+    # 尾音体检的原始收集器：所有输出片段的收尾电平/尾部静音，最后汇总成 tail_stats
+    tail_db_all, tail_ms_all, cut_tail_all = [], [], []
 
     if args.voice_only and args.split_dirs:
         jobs = []
@@ -279,9 +355,18 @@ def main(argv=None) -> int:
             stem = safe_name(f"{r.get('scene', 'x')}_{os.path.splitext(os.path.basename(src))[0]}")
             dst = os.path.join(out_sub, stem)
             try:
-                segs, secs = convert_one(src, dst, args.sample_rate, args.min_sec, args.max_sec)
+                segs, secs, tails = convert_one(
+                    src, dst, args.sample_rate, args.min_sec, args.max_sec,
+                    tail_pad=args.tail_pad, trim_tail=args.trim_tail, head_pad=args.head_pad)
                 st["built"] += segs
                 st["seconds"] = round(st["seconds"] + secs, 2)
+                for name, tms, edb in tails:
+                    if edb is not None:
+                        tail_db_all.append(edb)
+                    if tms is not None:
+                        tail_ms_all.append(tms)
+                    if edb is not None and edb > -12:
+                        cut_tail_all.append(f"{sp_name}/{name}: 收尾 {edb}dB / 尾静音 {tms}ms")
                 n_done += 1
             except ValueError as e:
                 if "短于下限" in str(e):
@@ -301,6 +386,22 @@ def main(argv=None) -> int:
         stats["seconds"] = round(stats["seconds"] + st["seconds"], 2)
 
     stats["minutes"] = round(stats["seconds"] / 60, 1)
+
+    # 尾音体检汇总：这是「句尾被切断」唯一可判读的信号，别只看片段时长对不对
+    if tail_db_all:
+        srt = sorted(tail_db_all)
+        n = len(srt)
+        ms = sorted(tail_ms_all) if tail_ms_all else [0.0]
+        cut = len(cut_tail_all)
+        stats["tail_stats"] = {
+            "n": n,
+            "median_end_db": round(srt[n // 2], 1),
+            "median_tail_ms": round(ms[len(ms) // 2], 1),
+            "cut_ratio": round(cut / float(n), 3),
+            "verdict": ("句尾被切断：训出来的模型会吞末字" if cut / float(n) > 0.3
+                        else "正常（句尾有自然衰减）"),
+        }
+    stats["cut_tail"] = cut_tail_all[:20]
     if args.report:
         os.makedirs(os.path.dirname(os.path.abspath(args.report)), exist_ok=True)
         with open(args.report, "w", encoding="utf-8") as f:

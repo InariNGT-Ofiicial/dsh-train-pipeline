@@ -1,10 +1,10 @@
 # dsh-train-pipeline
 
-[正式版 v0.4.2](https://github.com/InariNGT-Ofiicial/dsh-train-pipeline/releases/tag/v0.4.2) · 同时支持 DSH rc.2 / rc.3。
+[正式版 v0.5.0](https://github.com/InariNGT-Ofiicial/dsh-train-pipeline/releases/tag/v0.5.0) · 同时支持 DSH rc.2 / rc.3。
 
 兼容维护：同时支持 **DSH 0.2.1-rc.2 / rc.3**，保留旧版用法与设置。验证范围与复现见 [DSH 兼容说明](docs/DSH_COMPATIBILITY.md)。
 
-DeepSeek Harness（DSH）的本地音色训练插件，版本 **0.4.2**。19 个工具覆盖本机素材查找、指定 URL 下载、部分吉里吉里封包解包、角色盘点、数据集整理、质量检查、DDSP Reflow 预处理与训练，以及训练结果注册。
+DeepSeek Harness（DSH）的本地音色训练插件，版本 **0.5.0**。19 个工具覆盖本机素材查找、指定 URL 下载、部分吉里吉里封包解包、角色盘点、数据集整理、质量检查、DDSP Reflow 预处理与训练，以及训练结果注册。
 
 与 [dsh-cover-pipeline](https://github.com/InariNGT-Ofiicial/dsh-cover-pipeline) 配套：训练插件把 `model_N.pt` 和 `config.yaml` 放入约定的音色库，翻唱插件重载后发现并使用该音色。
 
@@ -64,14 +64,38 @@ train_doctor → train_plan → train_hunt / train_fetch / train_unpack
 | `train_fetch` | 下载给定 URL，记录 URL、SHA-256 与时间，不内置资源站搜索 |
 | `train_unpack` / `train_acquire` | 解包、可选反编译；acquire 串接查找与角色盘点 |
 | `train_scan` | 源识别、角色数量、语音数、时长及匹配报告 |
-| `train_build` | 转码、单声道、重采样、裁静音、超长分段 |
-| `train_qc` | 采样率、时长、削波、静音、粗重复检测；`apply=true` 才移动不合格文件 |
+| `train_build` | 转码、单声道、重采样、**只裁头 + 留尾**、超长分段、尾音体检 |
+| `train_qc` | 采样率、时长、削波、静音、粗重复检测、**尾音体检**；`apply=true` 才移动不合格文件 |
 | `train_preprocess` | 备份旧音频，复制新数据，执行 `draw.py` / `preprocess.py` |
 | `train_run` / `train_status` / `train_stop` | 后台训练、日志与 checkpoint 状态、停止进程 |
 | `train_infer` | 选择已有 checkpoint 做短句推理，需人工试听 |
 | `train_register` / `train_overview` | 注册模型与配置、检查工作区和音色库 |
 
 注册布局、指定步数和翻唱调用示例见 [接入翻唱插件](docs/INTEGRATION.md)。注册默认拒绝覆盖，缺少同一实验的 `config.yaml` 或空模型时失败。注册成功只证明文件可发现，不证明模型音质。
+
+## 数据集留尾（为什么默认不裁句尾）
+
+`train_build` 默认**只裁句首静音**：句尾的自然衰减原样保留，末尾再兜 0.16s 静音底。这不是口味问题，是有实测的（同一批 383 条语料，GPT-SoVITS 线上做的对照）：
+
+| 口径 | 旧的「双向裁」 | 留尾（当前默认） |
+| --- | --- | --- |
+| 尾部静音中位 | 0ms | 160ms |
+| 收尾电平（最后有声前 40ms，相对句内 90 分位） | −9.5dB | −24dB |
+| 停在满电平（> −12dB）的样本 | 64% | 4% |
+| 对应模型末三字完整念出率 | 33% | 93% |
+| 对应音素错误率 | 0.197 | 0.018 |
+
+旧的 `trim_silence` 是双向的：切到「最后一个有声帧 + 50ms」，等价于让每条数据都停在接近满电平。模型会把这学成「句子该在满电平处直接断」，推理时表现为吞末字、尾音没有衰减。
+
+判据是 `tail_stats`（出料与 QC 都会打）：
+
+- `median_end_db` 收尾电平中位 —— 真人自然收尾约 −24dB；
+- `median_tail_ms` 尾部静音中位 —— 太小说明尾巴被剃光；
+- `cut_ratio` 收尾 > −12dB 的占比 —— 超过 0.3 判「句尾被切断」。
+
+`train_build trimTail=true` 可复现旧数据集（用于和历史模型对齐），会同时打警告：这是已知缺陷，不要用在生产集上。QC 只统计比例、不逐条判废——短促句（「あっ！」）本来就会停在较高电平，逐条判死会误杀。
+
+**补静音底救不了源本身切尾。** `cut_ratio` 高说明源 wav 已经停在满电平，再补零没有用：必须从原始封包（ogg/opus）重建，而且**不要拿已经切过的 wav 再切一次**（二次切分会再丢 0.3s 左右）。
 
 ## 测试与验证
 

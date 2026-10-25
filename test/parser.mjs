@@ -133,6 +133,26 @@ assert.ok(qc.files >= 4, '质量门应看到 ≥4 个文件');
 assert.equal(qc.bad, 0, `不应有不合格样本，实际 ${qc.bad}: ${JSON.stringify(qc.bad_samples)}`);
 assert.equal(qc.duration_buckets['<min'], 0, '不应有太短的片段');
 
+// 留尾契约：合成样本是满电平结尾的纯正弦，所以这里能同时验两件事——
+// ① 出料确实兜了静音底（尾部静音中位 ≈ tail_pad 0.16s），② 体检确实认得出「停在满电平」。
+assert.ok(qc.tail_stats, '质量门应输出尾音体检');
+assert.equal(qc.tail_stats.n, qc.files, '尾音体检应覆盖所有文件');
+assert.ok(Math.abs(qc.tail_stats.median_tail_ms - 160) < 25,
+  `留尾后尾部静音中位应≈160ms，实际 ${qc.tail_stats.median_tail_ms}ms`);
+assert.ok(qc.tail_stats.cut_ratio > 0.9,
+  `满电平结尾的合成样本应被判「句尾被切断」，实际 cut_ratio ${qc.tail_stats.cut_ratio}`);
+assert.match(qc.tail_stats.verdict, /切断/, '满电平结尾应给出「切断」判词');
+
+// trimTail 只用于复现旧行为：同一批源，尾部静音必须明显变短
+const buildOld = run([
+  join(root, 'py', 'build_dataset.py'),
+  '--voice-dir', join(tmp, 'voice'),
+  '--out-dir', join(tmp, 'dataset_old'),
+  '--voice-only', '--speaker', '单角色', '--min-sec', '2', '--trim-tail',
+]);
+assert.ok(buildOld.tail_stats.median_tail_ms < 60,
+  `trimTail 复现旧行为时尾部静音应 <60ms，实际 ${buildOld.tail_stats.median_tail_ms}ms`);
+
 // ── 5 · 整目录模式（media 适配器复用的那条路）──────────────────────────────
 const build2 = run([
   join(root, 'py', 'build_dataset.py'),

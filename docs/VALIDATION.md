@@ -10,7 +10,7 @@
 | config | 未创建路径、显式错误路径、环境变量、本机配置优先级、PATH 命令 |
 | execution | 不存在的解释器启动失败、日志落盘 |
 | ks | 合成 CP932 KAG3 剧本、音效/术语过滤、内嵌封包与伪签名拒绝 |
-| parser | 合成 JSON → 数据集转码 → QC、单角色输入 |
+| parser | 合成 JSON → 数据集转码 → QC、单角色输入、留尾契约（尾部静音中位 ≈160ms、满电平样本判切断、`--trim-tail` 复现旧行为） |
 | duration | 实际编码 OGG 与 WAV 的帧数、单/多角色、损坏文件、已解包输入的 acquire |
 | register | 合成 checkpoint + 配置、可发现性、拒绝覆盖、缺配置不落盘 |
 | package | npm 包的必要文件、排除素材/权重/个人配置 |

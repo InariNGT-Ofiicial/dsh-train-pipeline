@@ -1,6 +1,6 @@
 {
   "name": "dsh-train-pipeline",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": true,
   "description": "DSH local voice-dataset + DDSP training pipeline: agent-driven material acquisition (find/fetch/unpack), galgame-first, other sources pluggable",
   "type": "module",
@@ -64,6 +64,7 @@
     "requirements*.txt",
     "test/*.mjs",
     "README.md",
+    "CHANGELOG.md",
     "THIRD_PARTY_NOTICES.md",
     "LICENSE"
   ],

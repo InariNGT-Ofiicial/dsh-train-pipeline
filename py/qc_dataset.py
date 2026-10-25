@@ -30,13 +30,39 @@ except ImportError:
     sys.exit(2)
 
 
+def end_metrics(mono, sr, win_sec: float = 0.04, rel: float = 0.01):
+    """
+    句尾体检，口径与 build_dataset.py 的 end_metrics 完全一致：
+    返回 (tail_ms, end_db)。end_db > -12dB = 句子停在满电平（被切尾）。
+
+    只进统计不进 reasons：单条高电平收尾不一定是错（「あっ！」这类短促句本来就这样），
+    真正有意义的是**整体比例**，所以由 tail_stats.cut_ratio 报警，不逐条判废。
+    """
+    if mono.size == 0:
+        return None, None
+    a = np.abs(mono)
+    peak = float(a.max())
+    if peak <= 0:
+        return None, None
+    idx = np.where(a > peak * rel)[0]
+    if idx.size == 0:
+        return None, None
+    last = int(idx[-1])
+    tail_ms = round((len(mono) - 1 - last) / float(sr) * 1000.0, 1)
+    k = max(1, int(win_sec * sr))
+    seg = a[max(0, last - k + 1): last + 1]
+    rms = float(np.sqrt(np.mean(seg ** 2))) + 1e-9
+    ref = float(np.percentile(a, 90)) + 1e-9
+    return tail_ms, round(20 * np.log10(rms / ref), 1)
+
+
 def analyze(path: str):
     info = sf.info(path)
     sr, ch, frames = info.samplerate, info.channels, info.frames
     dur = frames / sr if sr else 0.0
     out = {"path": path, "file": os.path.basename(path), "sr": sr, "channels": ch,
            "seconds": round(dur, 2), "peak_dbfs": None, "silence_ratio": None,
-           "clipped": False, "reasons": []}
+           "tail_ms": None, "end_db": None, "clipped": False, "reasons": []}
     try:
         y, _ = sf.read(path, always_2d=True, dtype="float32")
         mono = y.mean(axis=1)
@@ -44,6 +70,7 @@ def analyze(path: str):
         out["peak_dbfs"] = round(20 * np.log10(peak + 1e-12), 1)
         if peak >= 0.9995:
             out["clipped"] = True
+        out["tail_ms"], out["end_db"] = end_metrics(mono, sr)
         frame = max(1, int(sr * 0.02))
         n = len(mono) // frame
         if n:
@@ -150,6 +177,22 @@ def main(argv=None) -> int:
         "bad_samples": [{"file": it["file"], "reasons": it["reasons"]} for it in bad[:20]],
         "moved": len(moved),
     }
+    # 尾音体检：这是「句尾被切断」唯一可判读的信号。只统计整体比例，不逐条判废——
+    # 短促句（「あっ！」）本来就会停在较高电平，但若三成以上都 > -12dB，就是整批数据被削了尾。
+    tdb = [it["end_db"] for it in items if it.get("end_db") is not None]
+    if tdb:
+        srt = sorted(tdb)
+        n = len(srt)
+        cut = sum(1 for d in srt if d > -12)
+        sms = sorted(it["tail_ms"] for it in items if it.get("tail_ms") is not None)
+        report["tail_stats"] = {
+            "n": n,
+            "median_end_db": round(srt[n // 2], 1),
+            "median_tail_ms": round(sms[len(sms) // 2], 1) if sms else 0.0,
+            "cut_ratio": round(cut / float(n), 3),
+            "verdict": ("句尾被切断：源音频停在满电平，训出来的模型会吞末字"
+                        if cut / float(n) > 0.3 else "正常（句尾有自然衰减）"),
+        }
     if args.report:
         os.makedirs(os.path.dirname(os.path.abspath(args.report)), exist_ok=True)
         with open(args.report, "w", encoding="utf-8") as f:

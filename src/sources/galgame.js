@@ -348,7 +348,8 @@ const galgame = {
   },
 
   /** 出料：调用 build_dataset.py，落 dataset_raw/<角色> */
-  async build(ctx, { input, linesPath, voiceDir, speakers, minSec, maxSec, sampleRate, limit }) {
+  async build(ctx, { input, linesPath, voiceDir, speakers, minSec, maxSec, sampleRate, limit,
+    tailPad, trimTail }) {
     const det = await this.detect(ctx, { input });
     if (!det.ok) return det;
 
@@ -376,6 +377,9 @@ const galgame = {
       args.push('--lines', linesPath, '--speaker', (speakers ?? []).join(',') || 'all');
     }
     if (limit) args.push('--limit', String(limit));
+    // 留尾：默认不裁句尾，末尾兜静音底；trimTail 只为复现旧数据集
+    if (tailPad !== undefined && tailPad !== null) args.push('--tail-pad', String(tailPad));
+    if (trimTail) args.push('--trim-tail');
 
     const r = await ctx.runPy('build_dataset.py', args, { timeoutMs: 4 * 3600_000 });
     const parsed = ctx.lastJson(r.stdout);
@@ -387,6 +391,8 @@ const galgame = {
       datasets: parsed.speakers ?? [],
       built: parsed.built,
       minutes: parsed.minutes,
+      tailStats: parsed.tail_stats ?? null,
+      cutTail: parsed.cut_tail ?? [],
       reportPath: report,
       detail: `产出 ${parsed.built} 个片段 / ${parsed.minutes} 分钟`,
     };

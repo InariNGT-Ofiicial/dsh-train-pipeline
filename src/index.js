@@ -889,6 +889,8 @@ export async function apply(ctx, config) {
         minSec: { type: 'number', description: '片段下限秒（默认取配置）' },
         maxSec: { type: 'number', description: '片段上限秒（默认取配置）' },
         limit: { type: 'integer', description: '每角色最多处理多少条（试跑用）' },
+        tailPad: { type: 'number', description: '句尾兜底静音秒数，默认 0.16；设 0 关闭' },
+        trimTail: { type: 'boolean', description: '★仅复现旧数据集：裁掉句尾（会让模型吞末字，别在生产上用）' },
       },
       required: ['input', 'speakers'],
       additionalProperties: false,
@@ -926,11 +928,17 @@ export async function apply(ctx, config) {
         maxSec: args.maxSec ?? cfg.maxSec,
         sampleRate: cfg.sampleRate,
         limit: args.limit ?? 0,
+        tailPad: args.tailPad,
+        trimTail: args.trimTail === true,
       });
 
       const lines = [`【出料｜${picked.adapter.name}】`];
       if (minSecAuto !== null) {
         lines.push(`ℹ️ 片段下限 3.0s → ${minSecAuto}s（台词普遍 2-3 秒，3.0 会丢掉一半以上；要改传 minSec）`);
+      }
+      if (args.trimTail === true) {
+        lines.push('⚠️  trimTail=true：这是旧数据集行为（句尾裁到满电平），训出来的模型会吞末字，'
+          + '只用于对齐历史数据，不要用在生产集上');
       }
       if (!r.ok) {
         lines.push(`❌ ${r.detail ?? '失败'}`);
@@ -943,6 +951,17 @@ export async function apply(ctx, config) {
         lines.push(`    缺音频 ${d.skipped_missing} · 过短 ${d.skipped_short} · 失败 ${d.skipped_error}`);
         if (d.errors?.length) lines.push(`    ${d.errors.slice(0, 3).join(' | ')}`);
         lines.push(`    ${d.out_dir}`);
+      }
+      const ts = r.tailStats;
+      if (ts) {
+        lines.push('',
+          `尾音体检: ${ts.n} 段 · 收尾电平中位 ${ts.median_end_db}dB · 尾静音中位 ${ts.median_tail_ms}ms`);
+        lines.push(`  ${ts.cut_ratio > 0.3 ? '❌' : '✅'} ${ts.verdict}（切断 ${(ts.cut_ratio * 100).toFixed(0)}%）`);
+        if (ts.cut_ratio > 0.3) {
+          if (r.cutTail?.length) lines.push('  样本: ' + r.cutTail.slice(0, 3).join(' | '));
+          lines.push('  ⚠️  收尾电平 > -12dB 说明**源音频本身**就停在满电平，补静音底救不了。'
+            + '要么换语料，要么从原始封包重建——不要拿已经切过的 wav 再切一次。');
+        }
       }
       lines.push('', '下一步: train_qc（不过质量门不要进训练）');
       // ★ 把「实际用的阈值」记下来给 train_qc 继承。不记的话，build 用 1.5s 产出、
@@ -1007,6 +1026,15 @@ export async function apply(ctx, config) {
         `总时长 ${p.total_minutes} 分钟 · 合格 ${p.good_minutes} 分钟`,
         `时长分布: 过短 ${p.duration_buckets['<min']} / 正常 ${p.duration_buckets.ok} / 过长 ${p.duration_buckets['>max']}`,
       ];
+      if (p.tail_stats) {
+        const t = p.tail_stats;
+        lines.push(`尾音体检: 收尾电平中位 ${t.median_end_db}dB · 尾静音中位 ${t.median_tail_ms}ms · `
+          + `${t.cut_ratio > 0.3 ? '❌' : '✅'} ${t.verdict}（切断 ${(t.cut_ratio * 100).toFixed(0)}%）`);
+        if (t.cut_ratio > 0.3) {
+          lines.push('  ⚠️  这批数据的句尾是停在满电平的：补静音底救不了源本身切尾，'
+            + '要从原始封包/ogg 重建，不要拿已切过的 wav 再切一次。');
+        }
+      }
       if (p.bad) {
         lines.push('', '── 问题样本（前 10）──');
         for (const b of p.bad_samples.slice(0, 10)) lines.push(`  ${b.file}: ${b.reasons.join(', ')}`);
