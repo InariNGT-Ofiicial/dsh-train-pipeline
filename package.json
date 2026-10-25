@@ -1,6 +1,6 @@
 {
   "name": "dsh-train-pipeline",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "DSH local voice-dataset + DDSP training pipeline: agent-driven material acquisition (find/fetch/unpack), galgame-first, other sources pluggable",
   "type": "module",
@@ -20,7 +20,8 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=18"
+    "node": ">=18",
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
   },
   "dsh": {
     "bundle": {
@@ -39,7 +40,8 @@
     "test:register": "node test/register.mjs",
     "test:e2e": "node test/e2e.mjs",
     "test:live": "node test/live.mjs",
-    "test:all": "node test/all.mjs"
+    "test:all": "node test/all.mjs",
+    "test:host": "node scripts/test-dsh-host.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.1"
@@ -64,5 +66,9 @@
     "README.md",
     "THIRD_PARTY_NOTICES.md",
     "LICENSE"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/InariNGT-Ofiicial/dsh-train-pipeline.git"
+  }
 }
