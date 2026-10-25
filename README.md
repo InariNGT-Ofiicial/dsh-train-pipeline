@@ -1,5 +1,7 @@
 # dsh-train-pipeline
 
+兼容维护：同时支持 **DSH 0.2.1-rc.2 / rc.3**，保留旧版用法与设置。验证范围与复现见 [DSH 兼容说明](docs/DSH_COMPATIBILITY.md)。
+
 DeepSeek Harness（DSH）的本地音色训练插件，版本 **0.4.1**。19 个工具覆盖本机素材查找、指定 URL 下载、部分吉里吉里封包解包、角色盘点、数据集整理、质量检查、DDSP Reflow 预处理与训练，以及训练结果注册。
 
 与 [dsh-cover-pipeline](https://github.com/InariNGT-Ofiicial/dsh-cover-pipeline) 配套：训练插件把 `model_N.pt` 和 `config.yaml` 放入约定的音色库，翻唱插件重载后发现并使用该音色。
